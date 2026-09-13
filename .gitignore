@@ -28,3 +28,6 @@ venv/
 
 # Generated outputs
 ai/review_embeddings.parquet
+
+# Local screenshot staging folder
+pics/
