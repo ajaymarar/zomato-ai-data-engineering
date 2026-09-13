@@ -11,4 +11,4 @@ Suggested files:
 - `rag-chat.png`
 - `text-to-sql.png`
 
-Screenshots should not contain passwords, API keys, access tokens, connection strings, or other confidential information.
+**Security:** before committing screenshots, make sure they do not show passwords, API keys, access tokens, connection strings, email addresses, account identifiers, or other confidential information.
