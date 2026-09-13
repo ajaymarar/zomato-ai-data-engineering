@@ -1,71 +1,56 @@
 # Start Here
 
-This document explains how to restart the Zomato AI Data Engineering project after closing the browser, Antigravity, or Docker Desktop.
+This is the quick restart guide for the Zomato AI Data Engineering project.
 
-## 1. Prerequisites
+## Stack
 
-The project currently uses:
+- Azure Blob Storage — raw data landing zone
+- Snowflake — warehouse
+- dbt — transformations and tests
+- Apache Airflow 3 — orchestration
+- Docker Desktop — local Airflow runtime
+- Python / Streamlit — AI applications
+- OpenAI — optional; local fallbacks are available for the AI demos
 
-- Azure Blob Storage for raw data
-- Snowflake for the data warehouse
-- dbt for transformations
-- Apache Airflow for orchestration
-- Docker Desktop for the local Airflow environment
-- Python for the AI enrichment scripts
+The full cloud pipeline requires active Azure Storage and Snowflake resources.
 
-You need an active Azure Storage account and Snowflake account to run the full cloud pipeline.
+> **Security:** never commit `.env`, `zomato/profiles.yml`, passwords, API keys, Azure secrets, or raw CSV data.
 
-> **Important:** Never commit passwords, API keys, `.env` files, raw datasets, or Snowflake/dbt credentials to GitHub.
+## 1. Open the project
 
-## 2. Open the project
-
-Open the project directory:
+Open the repository folder in your IDE/terminal.
 
 ```text
 C:\antigravity\zomato-ai-data-engineering\zomato-ai-data-engineering-end-to-end-project
 ```
 
-Open this folder in your IDE/terminal.
-
-The terminal should end in something similar to:
-
-```text
-PS C:\antigravity\zomato-ai-data-engineering\zomato-ai-data-engineering-end-to-end-project>
-```
-
-## 3. Start Docker Desktop
+## 2. Start Docker Desktop
 
 Open Docker Desktop and wait until Docker is running.
 
-## 4. Start Airflow
+## 3. Start Airflow
 
-From the project root, run:
+From the project root:
 
 ```powershell
 docker compose --env-file .\airflow\.env -f .\airflow\docker-compose.yaml up -d
 ```
 
-Check that the containers are running:
+Check the containers:
 
 ```powershell
 docker compose --env-file .\airflow\.env -f .\airflow\docker-compose.yaml ps
 ```
 
-## 5. Open Airflow
-
-Open:
+Open Airflow:
 
 ```text
 http://localhost:8080
 ```
 
-The project DAG is:
+The DAG is `zomato_batch`.
 
-```text
-zomato_batch
-```
-
-The DAG orchestrates the pipeline in this order:
+Expected sequence:
 
 ```text
 reload_raw
@@ -77,11 +62,7 @@ enrich_reviews
 dbt_build_ai
 ```
 
-A successful run means all four tasks completed successfully.
-
-## 6. Snowflake
-
-Open Snowflake separately and make sure the account is active.
+## 4. Snowflake
 
 The main database is:
 
@@ -98,19 +79,17 @@ ZOMATO.MARTS
 ZOMATO.AI
 ```
 
-The Azure-backed Snowflake stage is:
+The Azure-backed external stage is:
 
 ```text
 ZOMATO.RAW.ZOMATO_RAW_STAGE
 ```
 
-## 7. Run the full pipeline
+## 5. Run the full pipeline
 
-The preferred way to run the complete pipeline is through Airflow.
+Trigger `zomato_batch` manually from Airflow.
 
-Open the `zomato_batch` DAG and trigger a manual DAG run.
-
-The expected task sequence is:
+The cloud flow is:
 
 ```text
 Azure Blob Storage
@@ -126,45 +105,47 @@ AI Review Enrichment
 dbt AI MART
 ```
 
-## 8. Test dbt manually
+## 6. Run the AI applications
 
-If you need to test dbt from inside the Airflow container:
+### RAG — chat with reviews
 
-```powershell
-docker compose --env-file .\airflow\.env -f .\airflow\docker-compose.yaml exec scheduler /opt/airflow/dbt_venv/bin/dbt debug --project-dir /opt/airflow/dbt/zomato --profiles-dir /opt/airflow/dbt/zomato
-```
-
-Build the core models:
+The local Streamlit app uses TF-IDF + cosine similarity for retrieval and does not require paid embedding credits.
 
 ```powershell
-docker compose --env-file .\airflow\.env -f .\airflow\docker-compose.yaml exec scheduler /opt/airflow/dbt_venv/bin/dbt build --exclude tag:ai --project-dir /opt/airflow/dbt/zomato --profiles-dir /opt/airflow/dbt/zomato
+streamlit run ai/rag_chat.py
 ```
 
-Build the AI model:
+Open:
+
+```text
+http://localhost:8501
+```
+
+### Text-to-SQL — chat with the warehouse
 
 ```powershell
-docker compose --env-file .\airflow\.env -f .\airflow\docker-compose.yaml exec scheduler /opt/airflow/dbt_venv/bin/dbt build --select tag:ai --project-dir /opt/airflow/dbt/zomato --profiles-dir /opt/airflow/dbt/zomato
+streamlit run ai/text_to_sql.py
 ```
 
-## 9. Test AI review enrichment manually
+The app has local SQL templates for common analytics questions and an optional OpenAI path for broader natural-language SQL generation. It validates generated SQL as read-only before execution.
 
-The enrichment script can be run directly inside the scheduler container:
+## 7. AI review enrichment
+
+Manual execution from the Airflow scheduler container:
 
 ```powershell
 docker compose --env-file .\airflow\.env -f .\airflow\docker-compose.yaml exec scheduler python /opt/airflow/ai/enrich_reviews.py
 ```
 
-The script first attempts OpenAI. If the API is unavailable, it uses the deterministic local fallback classifier.
-
-The enriched results are stored in:
+Results are stored in:
 
 ```text
 ZOMATO.AI.REVIEW_ENRICHED
 ```
 
-## 10. Useful Snowflake checks
+If OpenAI is unavailable, the script uses the deterministic local fallback classifier.
 
-Check enriched reviews:
+## 8. Useful Snowflake checks
 
 ```sql
 SELECT *
@@ -172,74 +153,48 @@ FROM ZOMATO.AI.REVIEW_ENRICHED
 ORDER BY ENRICHED_AT DESC;
 ```
 
-Check the final AI mart:
-
 ```sql
 SELECT *
 FROM ZOMATO.MARTS.MART_REVIEW_INSIGHTS
 ORDER BY REVIEWS DESC;
 ```
 
-Check RAW row counts:
+RAW row counts:
 
 ```sql
 SELECT 'RESTAURANTS' AS TABLE_NAME, COUNT(*) AS ROW_COUNT FROM ZOMATO.RAW.RESTAURANTS
-UNION ALL
-SELECT 'USERS', COUNT(*) FROM ZOMATO.RAW.USERS
-UNION ALL
-SELECT 'FOOD', COUNT(*) FROM ZOMATO.RAW.FOOD
-UNION ALL
-SELECT 'MENU', COUNT(*) FROM ZOMATO.RAW.MENU
-UNION ALL
-SELECT 'ORDERS', COUNT(*) FROM ZOMATO.RAW.ORDERS
-UNION ALL
-SELECT 'ORDER_ITEMS', COUNT(*) FROM ZOMATO.RAW.ORDER_ITEMS
-UNION ALL
-SELECT 'REVIEWS', COUNT(*) FROM ZOMATO.RAW.REVIEWS;
+UNION ALL SELECT 'USERS', COUNT(*) FROM ZOMATO.RAW.USERS
+UNION ALL SELECT 'FOOD', COUNT(*) FROM ZOMATO.RAW.FOOD
+UNION ALL SELECT 'MENU', COUNT(*) FROM ZOMATO.RAW.MENU
+UNION ALL SELECT 'ORDERS', COUNT(*) FROM ZOMATO.RAW.ORDERS
+UNION ALL SELECT 'ORDER_ITEMS', COUNT(*) FROM ZOMATO.RAW.ORDER_ITEMS
+UNION ALL SELECT 'REVIEWS', COUNT(*) FROM ZOMATO.RAW.REVIEWS;
 ```
 
-## 11. Stopping the project
-
-When finished, stop the Docker services with:
+## 9. Stop the project
 
 ```powershell
 docker compose --env-file .\airflow\.env -f .\airflow\docker-compose.yaml down
 ```
 
-This stops the local containers. It does not delete your project files or Snowflake/Azure data.
+This stops the local containers but does not delete your project files or cloud data.
 
-## 12. Starting again later
+## 10. If the cloud trial expires
 
-You do **not** need to recreate the project every time.
+The GitHub repository and code remain available. The live Azure → Snowflake pipeline requires active cloud resources.
 
-After closing everything:
+The RAG and Text-to-SQL applications have local-first components, so they can still be demonstrated without paid OpenAI credits, provided the required local/Snowflake data is available.
 
-1. Start Docker Desktop.
-2. Open this repository in your IDE.
-3. Open a terminal at the project root.
-4. Start Airflow with the `docker compose ... up -d` command above.
-5. Open `http://localhost:8080`.
-6. Open Snowflake separately.
-7. Trigger `zomato_batch` when you want to run the pipeline.
+## 11. Before every Git push
 
-## 13. Cloud subscription note
+Verify that these remain ignored:
 
-The code and documentation remain available in this repository even if the Azure or Snowflake trial ends.
+```text
+airflow/.env
+zomato/profiles.yml
+data/
+logs/
+zomato/target/
+```
 
-However, the live cloud pipeline requires an active Azure Storage account and Snowflake account. If those services are suspended, the cloud pipeline and Snowflake queries cannot run until the services are reactivated.
-
-A future local execution mode can be added using a local analytical database so the project can be demonstrated without the cloud accounts.
-
-## 14. Security checklist
-
-Before pushing changes to GitHub, verify that you are **not** committing:
-
-- `airflow/.env`
-- `OPENAI_API_KEY`
-- Snowflake passwords
-- Azure credentials
-- `zomato/profiles.yml` containing real credentials
-- raw CSV datasets
-- generated embeddings or other large data artifacts
-
-Use the example environment files for configuration templates.
+Never commit real credentials or raw datasets.
